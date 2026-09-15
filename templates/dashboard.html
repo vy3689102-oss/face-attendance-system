@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Smart Attendance System{% endblock %}
+{% block breadcrumb %}<i class="bi bi-speedometer2 me-2"></i>Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+  <div>
+    <h2 class="page-title">Dashboard</h2>
+    <p class="page-subtitle">Overview for <strong>{{ stats.date }}</strong></p>
+  </div>
+  <div class="text-end">
+    <div id="liveClock" class="fw-700 fs-4" style="font-variant-numeric:tabular-nums;color:var(--primary)">--:--:--</div>
+    <div class="text-muted small">Live Time</div>
+  </div>
+</div>
+
+<!-- ── Stat Cards ─────────────────────────────────────────────────────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="stat-card stat-blue">
+      <div class="stat-icon"><i class="bi bi-people-fill"></i></div>
+      <div class="stat-body">
+        <div class="stat-value">{{ stats.total }}</div>
+        <div class="stat-label">Total Students</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="stat-card stat-green">
+      <div class="stat-icon"><i class="bi bi-person-check-fill"></i></div>
+      <div class="stat-body">
+        <div class="stat-value">{{ stats.present }}</div>
+        <div class="stat-label">Present Today</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="stat-card stat-red">
+      <div class="stat-icon"><i class="bi bi-person-x-fill"></i></div>
+      <div class="stat-body">
+        <div class="stat-value">{{ stats.absent }}</div>
+        <div class="stat-label">Absent Today</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="stat-card stat-purple">
+      <div class="stat-icon"><i class="bi bi-percent"></i></div>
+      <div class="stat-body">
+        <div class="stat-value">{{ stats.percentage }}%</div>
+        <div class="stat-label">Attendance Rate</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Charts Row ─────────────────────────────────────────────────────────── -->
+<div class="row g-4 mb-4">
+  <!-- Weekly Trend -->
+  <div class="col-12 col-lg-8">
+    <div class="card card-custom h-100">
+      <div class="card-header-custom">
+        <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>7-Day Attendance Trend</h5>
+      </div>
+      <div class="card-body">
+        <canvas id="trendChart" height="120"></canvas>
+      </div>
+    </div>
+  </div>
+  <!-- Present vs Absent Doughnut -->
+  <div class="col-12 col-lg-4">
+    <div class="card card-custom h-100">
+      <div class="card-header-custom">
+        <h5 class="mb-0"><i class="bi bi-pie-chart-fill me-2"></i>Today</h5>
+      </div>
+      <div class="card-body d-flex align-items-center justify-content-center">
+        {% if stats.total > 0 %}
+        <canvas id="donutChart" height="200"></canvas>
+        {% else %}
+        <div class="text-center text-muted">
+          <i class="bi bi-people fs-1 d-block mb-2 opacity-25"></i>
+          <small>No students registered yet.<br>
+          <a href="{{ url_for('students.add_student') }}">Add a student</a> to see stats.</small>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Department Stats + Today Table ────────────────────────────────────── -->
+<div class="row g-4">
+  <!-- Dept Bar Chart -->
+  <div class="col-12 col-lg-5">
+    <div class="card card-custom h-100">
+      <div class="card-header-custom">
+        <h5 class="mb-0"><i class="bi bi-bar-chart-fill me-2"></i>Department-wise</h5>
+      </div>
+      <div class="card-body">
+        <canvas id="deptChart" height="180"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Today's Records Table -->
+  <div class="col-12 col-lg-7">
+    <div class="card card-custom h-100">
+      <div class="card-header-custom d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Today's Attendance</h5>
+        <a href="{{ url_for('attendance.attendance_page') }}" class="btn btn-sm btn-primary">
+          <i class="bi bi-camera-fill me-1"></i>Take Attendance
+        </a>
+      </div>
+      <div class="card-body p-0">
+        {% if stats.records %}
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th>Student ID</th><th>Name</th><th>Department</th>
+                <th>Time</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for att, stu in stats.records %}
+              <tr>
+                <td><span class="badge bg-secondary">{{ stu.student_id }}</span></td>
+                <td class="fw-500">{{ stu.name }}</td>
+                <td>{{ stu.department }}</td>
+                <td><small>{{ att.time }}</small></td>
+                <td><span class="badge bg-success">{{ att.status }}</span></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <i class="bi bi-calendar-x"></i>
+          <p>No attendance recorded today</p>
+          <a href="{{ url_for('attendance.attendance_page') }}" class="btn btn-primary btn-sm">Start Attendance</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// ── Chart Data from Flask ──────────────────────────────────────────────────
+const trendData    = {{ trend | tojson }};
+const deptData     = {{ dept_stats | tojson }};
+const presentToday = {{ stats.present }};
+const absentToday  = {{ stats.absent }};
+const totalStudents = {{ stats.total }};
+
+// 7-Day Line Chart
+new Chart(document.getElementById('trendChart'), {
+  type: 'line',
+  data: {
+    labels: trendData.map(d => {
+      const dt = new Date(d.date);
+      return dt.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+    }),
+    datasets: [{
+      label: 'Attendance %',
+      data: trendData.map(d => d.percentage),
+      borderColor: '#4F46E5',
+      backgroundColor: 'rgba(79,70,229,0.12)',
+      tension: 0.4, fill: true,
+      pointBackgroundColor: '#4F46E5',
+      pointRadius: 5,
+      pointHoverRadius: 7
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(1) + '%' } } },
+    scales: {
+      y: { min: 0, max: 100, ticks: { callback: v => v + '%' } },
+      x: { grid: { display: false } }
+    }
+  }
+});
+
+// Present vs Absent Doughnut (only render if students exist)
+if (totalStudents > 0) {
+  new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Present', 'Absent'],
+      datasets: [{ data: [presentToday, absentToday],
+        backgroundColor: ['#22c55e','#ef4444'], borderWidth: 0,
+        hoverOffset: 6 }]
+    },
+    options: {
+      responsive: true, cutout: '70%',
+      plugins: { legend: { position: 'bottom' },
+        tooltip: { callbacks: { label: ctx => ctx.label + ': ' + ctx.parsed } } }
+    }
+  });
+}
+
+// Department Bar Chart
+if (deptData.length > 0) {
+  new Chart(document.getElementById('deptChart'), {
+    type: 'bar',
+    data: {
+      labels: deptData.map(d => d.department),
+      datasets: [
+        { label: 'Present', data: deptData.map(d => d.present), backgroundColor: '#22c55e', borderRadius: 4 },
+        { label: 'Total',   data: deptData.map(d => d.total),   backgroundColor: '#e5e7eb', borderRadius: 4 }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { x: { stacked: false, grid: { display: false } }, y: { beginAtZero: true } }
+    }
+  });
+}
+
+// ── Live Clock ─────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('liveClock').textContent =
+    now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+updateClock();
+setInterval(updateClock, 1000);
+</script>
+{% endblock %}

@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+{% block title %}Take Attendance — Smart Attendance System{% endblock %}
+{% block breadcrumb %}<i class="bi bi-camera-fill me-2"></i>Take Attendance{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Attendance Station</h2>
+  <p class="page-subtitle">Face recognition &amp; liveness detection — {{ stats.date }}</p>
+</div>
+
+<div class="row g-4">
+  <!-- Camera Panel -->
+  <div class="col-12 col-lg-7">
+    <div class="card card-custom">
+      <div class="card-header-custom d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-camera-video me-2"></i>Live Camera</h5>
+        <span class="badge bg-secondary" id="systemState">Idle</span>
+      </div>
+      <div class="card-body text-center p-3">
+        <div class="camera-container" id="cameraContainer">
+          <video id="videoFeed" autoplay playsinline muted class="camera-video"></video>
+          <div class="camera-status" id="cameraStatus">
+            <i class="bi bi-camera-video-off fs-1 mb-2 d-block"></i>
+            Click "Start" to begin attendance
+          </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="attendance-status-bar mt-3" id="statusBar">
+          <div class="status-step {% if True %}active{% endif %}" id="step1">
+            <div class="step-icon"><i class="bi bi-person-video3"></i></div>
+            <small>Detect Face</small>
+          </div>
+          <div class="step-arrow">→</div>
+          <div class="status-step" id="step2">
+            <div class="step-icon"><i class="bi bi-eye"></i></div>
+            <small>Liveness</small>
+          </div>
+          <div class="step-arrow">→</div>
+          <div class="status-step" id="step3">
+            <div class="step-icon"><i class="bi bi-person-check"></i></div>
+            <small>Recognize</small>
+          </div>
+          <div class="step-arrow">→</div>
+          <div class="status-step" id="step4">
+            <div class="step-icon"><i class="bi bi-journal-check"></i></div>
+            <small>Mark</small>
+          </div>
+        </div>
+
+        <div class="mt-3 d-flex gap-2 justify-content-center">
+          <button id="startBtn" class="btn btn-success px-4">
+            <i class="bi bi-play-fill me-2"></i>Start
+          </button>
+          <button id="stopBtn" class="btn btn-secondary px-4 d-none">
+            <i class="bi bi-stop-fill me-2"></i>Stop
+          </button>
+          <button id="resetBtn" class="btn btn-outline-primary px-4 d-none">
+            <i class="bi bi-arrow-repeat me-2"></i>Next Person
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel -->
+  <div class="col-12 col-lg-5">
+    <!-- Message Box -->
+    <div class="card card-custom mb-4">
+      <div class="card-header-custom">
+        <h5 class="mb-0"><i class="bi bi-chat-square-text me-2"></i>Status</h5>
+      </div>
+      <div class="card-body">
+        <div id="mainMessage" class="attendance-message">
+          <i class="bi bi-info-circle fs-2 mb-2 d-block text-primary"></i>
+          <p>Start the camera and stand in front of the webcam.</p>
+          <p class="text-muted small">You will be asked to <strong>blink</strong> for liveness verification.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Result Card (hidden until recognized) -->
+    <div class="card card-custom d-none" id="resultCard">
+      <div class="card-header-custom">
+        <h5 class="mb-0"><i class="bi bi-person-check-fill me-2"></i>Recognition Result</h5>
+      </div>
+      <div class="card-body">
+        <div class="result-info">
+          <div class="result-avatar" id="resultAvatar">V</div>
+          <div class="result-details">
+            <div class="result-name"    id="resultName">—</div>
+            <div class="result-meta"    id="resultMeta">—</div>
+            <div class="result-status"  id="resultStatus"></div>
+            <div class="result-time"    id="resultTime"></div>
+            <div class="result-confidence" id="resultConf"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Today's Quick Stats -->
+    <div class="card card-custom mt-4">
+      <div class="card-header-custom">
+        <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>Today's Stats</h5>
+      </div>
+      <div class="card-body">
+        <div class="row text-center g-2">
+          <div class="col-4">
+            <div class="mini-stat">
+              <div class="mini-stat-value text-primary">{{ stats.total }}</div>
+              <div class="mini-stat-label">Total</div>
+            </div>
+          </div>
+          <div class="col-4">
+            <div class="mini-stat">
+              <div class="mini-stat-value text-success" id="presentCount">{{ stats.present }}</div>
+              <div class="mini-stat-label">Present</div>
+            </div>
+          </div>
+          <div class="col-4">
+            <div class="mini-stat">
+              <div class="mini-stat-value text-danger" id="absentCount">{{ stats.absent }}</div>
+              <div class="mini-stat-label">Absent</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let stream       = null;
+let frameTimer   = null;
+let capturing    = false;
+let sessionDone  = false;
+
+const video      = document.getElementById('videoFeed');
+const cStatus    = document.getElementById('cameraStatus');
+const startBtn   = document.getElementById('startBtn');
+const stopBtn    = document.getElementById('stopBtn');
+const resetBtn   = document.getElementById('resetBtn');
+const sysState   = document.getElementById('systemState');
+const msgBox     = document.getElementById('mainMessage');
+const resultCard = document.getElementById('resultCard');
+
+// ── Start ──────────────────────────────────────────────────────────────────
+startBtn.addEventListener('click', async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width:640, height:480 } });
+    video.srcObject = stream;
+    video.style.display = 'block';
+    cStatus.style.display = 'none';
+    startBtn.classList.add('d-none');
+    stopBtn.classList.remove('d-none');
+    capturing = true; sessionDone = false;
+
+    // Init server session
+    await fetch('/attendance/start', { method:'POST', headers:{'Content-Type':'application/json'} });
+
+    setMessage('info', '<i class="bi bi-eye fs-2 mb-2 d-block"></i><p>Look at the camera and <strong>blink twice</strong> to verify liveness.</p>');
+    setStep(1);
+    setState('Detecting…', 'warning');
+
+    frameTimer = setInterval(sendFrame, 500);
+  } catch(err) {
+    setMessage('danger', `<i class="bi bi-exclamation-triangle fs-2 mb-2 d-block text-danger"></i><p>Camera error: ${err.message}</p>`);
+  }
+});
+
+stopBtn.addEventListener('click', stopAll);
+resetBtn.addEventListener('click', async () => {
+  resultCard.classList.add('d-none');
+  resetBtn.classList.add('d-none');
+  stopBtn.classList.remove('d-none');
+  sessionDone = false;
+  setMessage('info', '<i class="bi bi-eye fs-2 mb-2 d-block"></i><p>Look at the camera and <strong>blink twice</strong>.</p>');
+  setStep(1);
+  setState('Detecting…', 'warning');
+  await fetch('/attendance/start', { method:'POST', headers:{'Content-Type':'application/json'} });
+  capturing = true;
+  frameTimer = setInterval(sendFrame, 500);
+});
+
+function stopAll() {
+  capturing = false;
+  clearInterval(frameTimer);
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.style.display = 'none';
+  cStatus.style.display = 'flex';
+  startBtn.classList.remove('d-none');
+  stopBtn.classList.add('d-none');
+  resetBtn.classList.add('d-none');
+  setState('Idle', 'secondary');
+}
+
+// ── Send Frame ──────────────────────────────────────────────────────────────
+async function sendFrame() {
+  if (!capturing || sessionDone) return;
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth || 640; c.height = video.videoHeight || 480;
+  c.getContext('2d').drawImage(video, 0, 0);
+  const b64 = c.toDataURL('image/jpeg', 0.8);
+
+  try {
+    const res  = await fetch('/attendance/frame', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ frame: b64 })
+    });
+    const data = await res.json();
+    handleResponse(data);
+  } catch(e) { /* network error — keep trying */ }
+}
+
+function handleResponse(data) {
+  switch(data.state) {
+    case 'no_face':
+      setStep(1); setState('No Face', 'secondary');
+      setMessage('warning', `<i class="bi bi-person-x fs-2 mb-2 d-block text-warning"></i><p>${data.message}</p>`);
+      break;
+    case 'multiple':
+      setStep(1); setState('Multiple Faces', 'warning');
+      setMessage('warning', `<i class="bi bi-people fs-2 mb-2 d-block text-warning"></i><p>${data.message}</p>`);
+      break;
+    case 'liveness_check':
+      setStep(2); setState('Liveness…', 'info');
+      setMessage('info', `
+        <i class="bi bi-eye fs-2 mb-2 d-block text-info"></i>
+        <p>${data.message}</p>
+        <div class="progress mt-2"><div class="progress-bar bg-info"
+          style="width:${(data.blink_count/data.required)*100}%"></div></div>
+        <small class="text-muted">${data.blink_count} / ${data.required} blinks</small>`);
+      break;
+    case 'recognizing':
+      setStep(3); setState('Recognizing…', 'primary');
+      setMessage('info', `<i class="bi bi-person-video3 fs-2 mb-2 d-block text-primary"></i><p>Verifying identity…</p>`);
+      break;
+    case 'recognized':
+      sessionDone = true; capturing = false; clearInterval(frameTimer);
+      setStep(4); setState('Marked ✓', 'success');
+      showResult(data, 'success');
+      break;
+    case 'duplicate':
+      sessionDone = true; capturing = false; clearInterval(frameTimer);
+      setStep(4); setState('Duplicate', 'warning');
+      showResult(data, 'duplicate');
+      break;
+    case 'unknown':
+      setState('Unknown', 'danger');
+      setMessage('danger', `<i class="bi bi-person-slash fs-2 mb-2 d-block text-danger"></i><p>${data.message}</p><small class="text-muted">Confidence: ${data.confidence}%</small>`);
+      break;
+    case 'error':
+      setMessage('danger', `<i class="bi bi-exclamation-triangle fs-2 mb-2 d-block text-danger"></i><p>${data.message}</p>`);
+      break;
+  }
+}
+
+function showResult(data, type) {
+  const s = data.student;
+  document.getElementById('resultAvatar').textContent = s.name[0].toUpperCase();
+  document.getElementById('resultName').textContent   = s.name;
+  document.getElementById('resultMeta').textContent   = `${s.id} • ${s.department} • Year ${s.year}`;
+  document.getElementById('resultConf').textContent   = `Confidence: ${data.confidence}%`;
+
+  if (type === 'success') {
+    document.getElementById('resultStatus').innerHTML = '<span class="badge bg-success fs-6"><i class="bi bi-check-circle me-1"></i>Present</span>';
+    document.getElementById('resultTime').textContent = `Marked at ${data.time} on ${data.date}`;
+    setMessage('success', `<i class="bi bi-check-circle-fill fs-2 mb-2 d-block text-success"></i><p class="fw-600">Attendance Marked!</p><p class="text-muted">${data.message}</p>`);
+  } else {
+    document.getElementById('resultStatus').innerHTML = '<span class="badge bg-warning text-dark fs-6"><i class="bi bi-exclamation-circle me-1"></i>Already Marked</span>';
+    document.getElementById('resultTime').textContent = data.message;
+    setMessage('warning', `<i class="bi bi-calendar-check fs-2 mb-2 d-block text-warning"></i><p class="fw-600">Already Marked</p><p class="text-muted">${data.message}</p>`);
+  }
+
+  resultCard.classList.remove('d-none');
+  stopBtn.classList.add('d-none');
+  resetBtn.classList.remove('d-none');
+}
+
+function setStep(n) {
+  for(let i=1;i<=4;i++) {
+    const el = document.getElementById('step'+i);
+    el.classList.remove('active','done');
+    if(i < n) el.classList.add('done');
+    else if(i === n) el.classList.add('active');
+  }
+}
+
+function setState(txt, cls) {
+  sysState.textContent  = txt;
+  sysState.className    = `badge bg-${cls}`;
+}
+
+function setMessage(type, html) {
+  msgBox.className = `attendance-message text-center`;
+  msgBox.innerHTML = html;
+}
+</script>
+{% endblock %}

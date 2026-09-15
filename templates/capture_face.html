@@ -1,0 +1,292 @@
+{% extends "base.html" %}
+{% block title %}Capture Face — {{ student.name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('students.list_students') }}" class="text-decoration-none">Students</a>
+  <i class="bi bi-chevron-right mx-2 small"></i>Capture Face
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Face Registration</h2>
+  <p class="page-subtitle">Capturing samples for <strong>{{ student.name }}</strong> ({{ student.student_id }})</p>
+</div>
+
+<div class="row g-4">
+  <!-- Camera Panel -->
+  <div class="col-12 col-lg-7">
+    <div class="card card-custom">
+      <div class="card-header-custom">
+        <h5 class="mb-0"><i class="bi bi-camera-video me-2"></i>Webcam Feed</h5>
+      </div>
+      <div class="card-body text-center p-3">
+        <div class="camera-container" id="cameraContainer">
+          <video id="videoFeed" autoplay playsinline muted class="camera-video"></video>
+          <canvas id="overlayCanvas" class="camera-overlay"></canvas>
+          <div class="camera-status" id="cameraStatus">
+            <i class="bi bi-camera-video-off fs-1 mb-2 d-block"></i>
+            Click "Start Camera" to begin
+          </div>
+        </div>
+        <div class="mt-3 d-flex gap-2 justify-content-center flex-wrap">
+          <button id="startBtn" class="btn btn-success px-4">
+            <i class="bi bi-play-fill me-2"></i>Start Camera
+          </button>
+          <button id="stopBtn" class="btn btn-secondary px-4 d-none">
+            <i class="bi bi-stop-fill me-2"></i>Stop
+          </button>
+          <button id="resetBtn" class="btn btn-outline-warning px-4 d-none">
+            <i class="bi bi-arrow-counterclockwise me-2"></i>Reset
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Progress Panel -->
+  <div class="col-12 col-lg-5">
+    <div class="card card-custom h-100">
+      <div class="card-header-custom">
+        <h5 class="mb-0"><i class="bi bi-clipboard-data me-2"></i>Capture Progress</h5>
+      </div>
+      <div class="card-body">
+        <!-- Student Info -->
+        <div class="student-info-box mb-4">
+          <div class="d-flex align-items-center gap-3">
+            <div class="avatar-circle">
+              {{ student.name[0].upper() }}
+            </div>
+            <div>
+              <div class="fw-600">{{ student.name }}</div>
+              <small class="text-muted">{{ student.student_id }} &bull; {{ student.department }} &bull; Year {{ student.year }}</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="mb-3">
+          <div class="d-flex justify-content-between mb-1">
+            <span class="small fw-500">Samples Captured</span>
+            <span class="small" id="countLabel">0 / {{ max_samples }}</span>
+          </div>
+          <div class="progress capture-progress">
+            <div class="progress-bar bg-success" id="progressBar"
+                 role="progressbar" style="width:0%" aria-valuenow="0"
+                 aria-valuemin="0" aria-valuemax="100"></div>
+          </div>
+          <small class="text-muted">Minimum {{ min_samples }} samples required</small>
+        </div>
+
+        <!-- Status Messages -->
+        <div id="captureAlert" class="alert alert-info small py-2 mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Start the camera and position your face in the frame.
+        </div>
+
+        <!-- Sample Thumbnails -->
+        <div class="mb-4">
+          <p class="small fw-500 mb-2">Recent Samples</p>
+          <div id="thumbnailRow" class="thumbnail-row"></div>
+        </div>
+
+        <!-- Tips -->
+        <div class="tips-box">
+          <p class="small fw-500 mb-2"><i class="bi bi-lightbulb me-1 text-warning"></i>Tips for best results:</p>
+          <ul class="small text-muted mb-0">
+            <li>Ensure good lighting on your face</li>
+            <li>Look straight at the camera</li>
+            <li>Slowly move head slightly left/right for variety</li>
+            <li>Avoid covering your face</li>
+            <li>Only one person should be in frame</li>
+          </ul>
+        </div>
+
+        <!-- Finish Button -->
+        <button id="finishBtn" class="btn btn-primary w-100 mt-3 d-none" disabled>
+          <i class="bi bi-check-circle me-2"></i>Save Face Data
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Success Modal -->
+<div class="modal fade" id="successModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content text-center p-4">
+      <div class="success-icon-circle mb-3">
+        <i class="bi bi-check-lg text-success fs-1"></i>
+      </div>
+      <h4 class="fw-700">Face Registered!</h4>
+      <p class="text-muted" id="successMsg"></p>
+      <a href="{{ url_for('students.list_students') }}" class="btn btn-success w-100">
+        <i class="bi bi-people me-2"></i>Go to Students
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const STUDENT_ID  = "{{ student.student_id }}";
+const MIN_SAMPLES = {{ min_samples }};
+const MAX_SAMPLES = {{ max_samples }};
+const FRAME_INTERVAL = 600;  // ms between captures
+
+let stream       = null;
+let captureTimer = null;
+let count        = 0;
+let capturing    = false;
+let readyToFinish = false;
+
+const video      = document.getElementById('videoFeed');
+const overlay    = document.getElementById('overlayCanvas');
+const status     = document.getElementById('cameraStatus');
+const startBtn   = document.getElementById('startBtn');
+const stopBtn    = document.getElementById('stopBtn');
+const resetBtn   = document.getElementById('resetBtn');
+const finishBtn  = document.getElementById('finishBtn');
+const progressBar = document.getElementById('progressBar');
+const countLabel  = document.getElementById('countLabel');
+const alert_box   = document.getElementById('captureAlert');
+const thumbRow    = document.getElementById('thumbnailRow');
+
+// ── Start Camera ──────────────────────────────────────────────────────────
+startBtn.addEventListener('click', async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width:640, height:480 } });
+    video.srcObject = stream;
+    video.style.display = 'block';
+    status.style.display = 'none';
+    startBtn.classList.add('d-none');
+    stopBtn.classList.remove('d-none');
+    resetBtn.classList.remove('d-none');
+    capturing = true;
+    captureTimer = setInterval(captureFrame, FRAME_INTERVAL);
+    setAlert('info', '<i class="bi bi-camera me-1"></i>Capturing… position your face in the frame.');
+  } catch(err) {
+    setAlert('danger', '<i class="bi bi-exclamation-triangle me-1"></i>Camera access denied: ' + err.message);
+  }
+});
+
+// ── Stop Camera ───────────────────────────────────────────────────────────
+stopBtn.addEventListener('click', stopCamera);
+
+function stopCamera() {
+  capturing = false;
+  clearInterval(captureTimer);
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.style.display = 'none';
+  status.style.display = 'flex';
+  startBtn.classList.remove('d-none');
+  stopBtn.classList.add('d-none');
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────
+resetBtn.addEventListener('click', async () => {
+  stopCamera();
+  count = 0; readyToFinish = false;
+  progressBar.style.width = '0%';
+  countLabel.textContent = `0 / ${MAX_SAMPLES}`;
+  thumbRow.innerHTML = '';
+  finishBtn.classList.add('d-none');
+  setAlert('info', 'Session reset. Start camera to begin again.');
+  await fetch(`/capture/reset/${STUDENT_ID}`, { method:'POST',
+    headers:{'Content-Type':'application/json'} });
+});
+
+// ── Capture Frame ─────────────────────────────────────────────────────────
+async function captureFrame() {
+  if (!capturing || count >= MAX_SAMPLES) return;
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const b64 = canvas.toDataURL('image/jpeg', 0.85);
+
+  try {
+    const res  = await fetch(`/capture/frame/${STUDENT_ID}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ frame: b64 })
+    });
+    const data = await res.json();
+
+    if (data.status === 'captured') {
+      count = data.count;
+      updateProgress(count, data.progress);
+      addThumbnail(b64);
+      setAlert('success', `<i class="bi bi-check-circle me-1"></i>${data.message}`);
+
+      if (data.ready) {
+        readyToFinish = true;
+        finishBtn.classList.remove('d-none');
+        finishBtn.disabled = false;
+      }
+      if (count >= MAX_SAMPLES) {
+        clearInterval(captureTimer);
+        capturing = false;
+        setAlert('success', '<i class="bi bi-check-circle-fill me-1"></i>All samples captured! Click "Save Face Data".');
+      }
+    } else {
+      const msgs = {
+        no_face:  '<i class="bi bi-person-x me-1"></i>' + data.message,
+        multiple: '<i class="bi bi-people me-1"></i>' + data.message,
+        blurry:   '<i class="bi bi-eye-slash me-1"></i>' + data.message,
+        error:    '<i class="bi bi-exclamation-triangle me-1"></i>' + data.message
+      };
+      setAlert('warning', msgs[data.status] || data.message);
+    }
+  } catch(e) {
+    setAlert('danger', 'Network error: ' + e.message);
+  }
+}
+
+// ── Finish ─────────────────────────────────────────────────────────────────
+finishBtn.addEventListener('click', async () => {
+  finishBtn.disabled = true;
+  finishBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving…';
+  try {
+    const res  = await fetch(`/capture/finish/${STUDENT_ID}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (data.status === 'success') {
+      document.getElementById('successMsg').textContent = data.message;
+      stopCamera();
+      new bootstrap.Modal(document.getElementById('successModal')).show();
+    } else {
+      setAlert('danger', data.error || 'Failed to save.');
+      finishBtn.disabled = false;
+      finishBtn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Save Face Data';
+    }
+  } catch(e) {
+    setAlert('danger', 'Error: ' + e.message);
+    finishBtn.disabled = false;
+    finishBtn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Save Face Data';
+  }
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function updateProgress(cnt, pct) {
+  progressBar.style.width = pct + '%';
+  progressBar.setAttribute('aria-valuenow', pct);
+  countLabel.textContent = `${cnt} / ${MAX_SAMPLES}`;
+}
+
+function addThumbnail(b64) {
+  if (thumbRow.children.length >= 5) thumbRow.removeChild(thumbRow.firstChild);
+  const img = document.createElement('img');
+  img.src       = b64;
+  img.className = 'thumb-img';
+  img.title     = 'Sample captured';
+  thumbRow.appendChild(img);
+}
+
+function setAlert(type, html) {
+  alert_box.className = `alert alert-${type} small py-2 mb-3`;
+  alert_box.innerHTML = html;
+}
+</script>
+{% endblock %}

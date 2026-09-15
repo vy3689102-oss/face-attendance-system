@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% block title %}Reports — Smart Attendance System{% endblock %}
+{% block breadcrumb %}<i class="bi bi-bar-chart-fill me-2"></i>Reports{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Reports & Analytics</h2>
+  <p class="page-subtitle">Generate daily, monthly and student-wise attendance reports</p>
+</div>
+
+<!-- Report Type Tabs -->
+<ul class="nav nav-pills mb-4" id="reportTabs">
+  <li class="nav-item">
+    <button class="nav-link active" onclick="showTab('daily')">
+      <i class="bi bi-calendar-day me-2"></i>Daily Report
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" onclick="showTab('monthly')">
+      <i class="bi bi-calendar-month me-2"></i>Monthly Report
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" onclick="showTab('student')">
+      <i class="bi bi-person-lines-fill me-2"></i>Student Report
+    </button>
+  </li>
+</ul>
+
+<!-- ── Daily Report ────────────────────────────────────────────────────────── -->
+<div id="tab-daily">
+  <div class="card card-custom mb-4">
+    <div class="card-header-custom">
+      <h5 class="mb-0"><i class="bi bi-calendar-day me-2"></i>Daily Attendance Report</h5>
+    </div>
+    <div class="card-body">
+      <div class="row g-3 align-items-end mb-4">
+        <div class="col-12 col-md-4">
+          <label class="form-label">Select Date</label>
+          <input type="date" class="form-control" id="dailyDate" value="{{ today }}"/>
+        </div>
+        <div class="col-12 col-md-4">
+          <button class="btn btn-primary" onclick="loadDailyReport()">
+            <i class="bi bi-search me-2"></i>Generate Report
+          </button>
+        </div>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="row g-3 mb-4 d-none" id="dailySummary">
+        <div class="col-6 col-md-3">
+          <div class="mini-card text-center">
+            <div class="mini-card-value text-primary" id="d-total">0</div>
+            <div class="mini-card-label">Total</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="mini-card text-center">
+            <div class="mini-card-value text-success" id="d-present">0</div>
+            <div class="mini-card-label">Present</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="mini-card text-center">
+            <div class="mini-card-value text-danger" id="d-absent">0</div>
+            <div class="mini-card-label">Absent</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="mini-card text-center">
+            <div class="mini-card-value text-purple" id="d-pct">0%</div>
+            <div class="mini-card-label">Percentage</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Export Buttons -->
+      <div class="d-flex gap-2 mb-3 d-none" id="dailyExport">
+        <button class="btn btn-outline-secondary btn-sm" onclick="exportDaily('csv')">
+          <i class="bi bi-filetype-csv me-1"></i>Export CSV
+        </button>
+        <button class="btn btn-outline-success btn-sm" onclick="exportDaily('excel')">
+          <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+        </button>
+      </div>
+
+      <!-- Table -->
+      <div class="table-responsive d-none" id="dailyTable">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr><th>Student ID</th><th>Name</th><th>Department</th><th>Status</th><th>Time</th></tr>
+          </thead>
+          <tbody id="dailyTableBody"></tbody>
+        </table>
+      </div>
+      <div id="dailyEmpty" class="empty-state d-none">
+        <i class="bi bi-calendar-x"></i><p>No data for selected date</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Monthly Report ──────────────────────────────────────────────────────── -->
+<div id="tab-monthly" class="d-none">
+  <div class="card card-custom mb-4">
+    <div class="card-header-custom">
+      <h5 class="mb-0"><i class="bi bi-calendar-month me-2"></i>Monthly Attendance Report</h5>
+    </div>
+    <div class="card-body">
+      <div class="row g-3 align-items-end mb-4">
+        <div class="col-12 col-md-3">
+          <label class="form-label">Month</label>
+          <select class="form-select" id="monthSel">
+            {% for m in range(1,13) %}
+            <option value="{{ m }}" {% if m == curr_month %}selected{% endif %}>
+              {{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1] }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label">Year</label>
+          <select class="form-select" id="yearSel">
+            {% for y in range(curr_year-2, curr_year+1) %}
+            <option value="{{ y }}" {% if y == curr_year %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-3">
+          <button class="btn btn-primary" onclick="loadMonthlyReport()">
+            <i class="bi bi-search me-2"></i>Generate
+          </button>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mb-3 d-none" id="monthlyExport">
+        <button class="btn btn-outline-secondary btn-sm" onclick="exportMonthly('csv')">
+          <i class="bi bi-filetype-csv me-1"></i>Export CSV
+        </button>
+        <button class="btn btn-outline-success btn-sm" onclick="exportMonthly('excel')">
+          <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+        </button>
+      </div>
+
+      <div class="table-responsive d-none" id="monthlyTable">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr><th>Student ID</th><th>Name</th><th>Department</th><th>Present</th><th>Absent</th><th>Total Days</th><th>Percentage</th></tr>
+          </thead>
+          <tbody id="monthlyTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Student Report ──────────────────────────────────────────────────────── -->
+<div id="tab-student" class="d-none">
+  <div class="card card-custom mb-4">
+    <div class="card-header-custom">
+      <h5 class="mb-0"><i class="bi bi-person-lines-fill me-2"></i>Student-wise Report</h5>
+    </div>
+    <div class="card-body">
+      <div class="row g-3 align-items-end mb-4">
+        <div class="col-12 col-md-5">
+          <label class="form-label">Select Student</label>
+          <select class="form-select" id="studentSel">
+            <option value="">— Select Student —</option>
+            {% for s in students %}
+            <option value="{{ s.student_id }}">{{ s.name }} ({{ s.student_id }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-3">
+          <button class="btn btn-primary" onclick="loadStudentReport()">
+            <i class="bi bi-search me-2"></i>Generate
+          </button>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-4 d-none" id="studentSummary">
+        <div class="col-6 col-md-3">
+          <div class="mini-card text-center">
+            <div class="mini-card-value text-primary" id="s-total">0</div>
+            <div class="mini-card-label">Total Classes</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="mini-card text-center">
+            <div class="mini-card-value text-success" id="s-present">0</div>
+            <div class="mini-card-label">Present</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="mini-card text-center">
+            <div class="mini-card-value text-danger" id="s-absent">0</div>
+            <div class="mini-card-label">Absent</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="mini-card text-center">
+            <div class="mini-card-value text-purple" id="s-pct">0%</div>
+            <div class="mini-card-label">Percentage</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mb-3 d-none" id="studentExport">
+        <button class="btn btn-outline-secondary btn-sm" onclick="exportStudent('csv')">
+          <i class="bi bi-filetype-csv me-1"></i>Export CSV
+        </button>
+        <button class="btn btn-outline-success btn-sm" onclick="exportStudent('excel')">
+          <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+        </button>
+      </div>
+
+      <div class="table-responsive d-none" id="studentTable">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr><th>Date</th><th>Time</th><th>Status</th><th>Confidence</th></tr>
+          </thead>
+          <tbody id="studentTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentStudentId = '';
+
+function showTab(name) {
+  ['daily','monthly','student'].forEach(t => {
+    document.getElementById('tab-'+t).classList.add('d-none');
+  });
+  document.querySelectorAll('#reportTabs .nav-link').forEach((b,i) => b.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.remove('d-none');
+  event.target.classList.add('active');
+}
+
+// ── Daily ──────────────────────────────────────────────────────────────────
+async function loadDailyReport() {
+  const date = document.getElementById('dailyDate').value;
+  if (!date) { alert('Please select a date'); return; }
+  const res  = await fetch(`/reports/daily?date=${date}`);
+  const data = await res.json();
+  document.getElementById('d-total').textContent   = data.total;
+  document.getElementById('d-present').textContent = data.present;
+  document.getElementById('d-absent').textContent  = data.absent;
+  document.getElementById('d-pct').textContent     = data.percentage + '%';
+  document.getElementById('dailySummary').classList.remove('d-none');
+  document.getElementById('dailyExport').classList.remove('d-none');
+
+  const tbody = document.getElementById('dailyTableBody');
+  tbody.innerHTML = '';
+  if (data.records.length === 0) {
+    document.getElementById('dailyTable').classList.add('d-none');
+    document.getElementById('dailyEmpty').classList.remove('d-none');
+    return;
+  }
+  document.getElementById('dailyEmpty').classList.add('d-none');
+  document.getElementById('dailyTable').classList.remove('d-none');
+  data.records.forEach(r => {
+    const cls = r.Status === 'Present' ? 'bg-success' : 'bg-danger';
+    tbody.innerHTML += `<tr>
+      <td><span class="badge bg-secondary">${r['Student ID']}</span></td>
+      <td class="fw-500">${r.Name}</td>
+      <td>${r.Department}</td>
+      <td><span class="badge ${cls}">${r.Status}</span></td>
+      <td><small>${r.Time || '—'}</small></td>
+    </tr>`;
+  });
+}
+
+function exportDaily(fmt) {
+  const date = document.getElementById('dailyDate').value;
+  window.location.href = `/reports/export/daily/${fmt}?date=${date}`;
+}
+
+// ── Monthly ────────────────────────────────────────────────────────────────
+async function loadMonthlyReport() {
+  const m = document.getElementById('monthSel').value;
+  const y = document.getElementById('yearSel').value;
+  const res  = await fetch(`/reports/monthly?month=${m}&year=${y}`);
+  const data = await res.json();
+  document.getElementById('monthlyExport').classList.remove('d-none');
+  const tbody = document.getElementById('monthlyTableBody');
+  tbody.innerHTML = '';
+  document.getElementById('monthlyTable').classList.remove('d-none');
+  data.records.forEach(r => {
+    const cls = r.percentage >= 75 ? 'text-success' : 'text-danger';
+    tbody.innerHTML += `<tr>
+      <td><span class="badge bg-secondary">${r.student_id}</span></td>
+      <td class="fw-500">${r.name}</td>
+      <td>${r.department}</td>
+      <td class="text-success">${r.present}</td>
+      <td class="text-danger">${r.absent}</td>
+      <td>${r.total_days}</td>
+      <td class="${cls} fw-600">${r.percentage}%</td>
+    </tr>`;
+  });
+}
+
+function exportMonthly(fmt) {
+  const m = document.getElementById('monthSel').value;
+  const y = document.getElementById('yearSel').value;
+  window.location.href = `/reports/export/monthly/${fmt}?month=${m}&year=${y}`;
+}
+
+// ── Student ────────────────────────────────────────────────────────────────
+async function loadStudentReport() {
+  const sid = document.getElementById('studentSel').value;
+  if (!sid) { alert('Please select a student'); return; }
+  currentStudentId = sid;
+  const res  = await fetch(`/reports/student?student_id=${sid}`);
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+  document.getElementById('s-total').textContent   = data.total;
+  document.getElementById('s-present').textContent = data.present;
+  document.getElementById('s-absent').textContent  = data.absent;
+  document.getElementById('s-pct').textContent     = data.percentage + '%';
+  document.getElementById('studentSummary').classList.remove('d-none');
+  document.getElementById('studentExport').classList.remove('d-none');
+  const tbody = document.getElementById('studentTableBody');
+  tbody.innerHTML = '';
+  document.getElementById('studentTable').classList.remove('d-none');
+  data.records.forEach(r => {
+    const cls = r.status === 'Present' ? 'bg-success' : 'bg-danger';
+    tbody.innerHTML += `<tr>
+      <td>${r.date}</td>
+      <td><small>${r.time}</small></td>
+      <td><span class="badge ${cls}">${r.status}</span></td>
+      <td><small>${r.confidence}%</small></td>
+    </tr>`;
+  });
+}
+
+function exportStudent(fmt) {
+  window.location.href = `/reports/export/student/${fmt}?student_id=${currentStudentId}`;
+}
+</script>
+{% endblock %}

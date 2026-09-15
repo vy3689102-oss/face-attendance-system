@@ -1,0 +1,284 @@
+"""
+services/liveness.py - Basic Liveness Detection
+
+PURPOSE:
+  Prevent simple spoofing attacks where someone shows a static photograph
+  to the camera instead of their real face.
+
+METHOD:
+  Eye Aspect Ratio (EAR) Blink Detection
+  - Compute the ratio of eye height to eye width using facial landmarks.
+  - When a person blinks, the EAR drops sharply then recovers.
+  - A photograph cannot blink → liveness fails.
+
+IMPORTANT DISCLAIMER:
+  This is BASIC liveness detection suitable for a college project.
+  It is NOT certified anti-spoofing. Determined attackers with video
+  loops or 3D masks may defeat it. Do not use in high-security systems
+  without additional certified anti-spoofing measures.
+
+EAR Formula (Soukupova & Cech, 2016):
+  EAR = (|p2-p6| + |p3-p5|) / (2 * |p1-p4|)
+  Where p1..p6 are the six eye landmark points.
+  EAR ≈ 0.3 when open, drops to ~0.0 when closed.
+"""
+
+import time
+import cv2
+import numpy as np
+from config import EAR_THRESHOLD, EAR_CONSEC_FRAMES, REQUIRED_BLINKS, LIVENESS_TIMEOUT
+
+
+# ─── Facial Landmark Detection ────────────────────────────────────────────────
+# We use dlib's 68-point predictor if available,
+# otherwise fall back to a simplified eye-region analysis via Haar cascade.
+
+try:
+    import dlib
+    _DLIB_AVAILABLE = True
+    _detector  = dlib.get_frontal_face_detector()
+    import os
+    _PREDICTOR_PATH = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        'data', 'shape_predictor_68_face_landmarks.dat'
+    )
+    if os.path.exists(_PREDICTOR_PATH):
+        _predictor = dlib.shape_predictor(_PREDICTOR_PATH)
+        _PREDICTOR_AVAILABLE = True
+    else:
+        _PREDICTOR_AVAILABLE = False
+        _DLIB_AVAILABLE = False
+except ImportError:
+    _DLIB_AVAILABLE = False
+    _PREDICTOR_AVAILABLE = False
+
+
+# ─── LivenessChecker Class ────────────────────────────────────────────────────
+
+class LivenessChecker:
+    """
+    Stateful liveness checker — tracks blink count across multiple frames.
+    One instance is created per attendance session and shared across frames.
+
+    Features:
+      - Counts blinks using EAR (Eye Aspect Ratio) threshold.
+      - Times out after LIVENESS_TIMEOUT seconds if not enough blinks detected.
+      - Resets automatically on timeout so the next person can try.
+
+    Usage:
+        checker = LivenessChecker()
+        for frame in webcam_frames:
+            result = checker.process_frame(frame)
+            if result['passed']:
+                break
+            if result['timed_out']:
+                checker = LivenessChecker()   # restart
+    """
+
+    def __init__(self):
+        self.blink_count   = 0
+        self.consec_below  = 0          # Consecutive frames with EAR below threshold
+        self.passed        = False
+        self.timed_out     = False
+        self.message       = 'Please blink to verify liveness'
+        self.ear_history   = []
+        self._start_time   = time.time()  # Track when session started
+
+    def reset(self):
+        self.__init__()
+
+    @property
+    def elapsed(self) -> float:
+        """Seconds since this liveness session started."""
+        return time.time() - self._start_time
+
+    @property
+    def remaining(self) -> float:
+        """Seconds remaining before timeout."""
+        return max(0.0, LIVENESS_TIMEOUT - self.elapsed)
+
+    def process_frame(self, frame: np.ndarray, face_bbox: tuple = None) -> dict:
+        """
+        Process one webcam frame and update blink state.
+
+        Args:
+            frame:     BGR webcam frame
+            face_bbox: (x, y, w, h) from face_detection if already detected
+
+        Returns:
+            dict with:
+              - 'passed'       (bool)   : liveness verified
+              - 'timed_out'    (bool)   : timeout reached without enough blinks
+              - 'blink_count'  (int)    : blinks detected so far
+              - 'required'     (int)    : blinks required
+              - 'remaining'    (float)  : seconds left before timeout
+              - 'ear'          (float)  : current EAR value
+              - 'message'      (str)    : user-facing status message
+              - 'annotated'    (ndarray): frame with overlay
+        """
+        annotated = frame.copy()
+
+        # Already verified — just return success
+        if self.passed:
+            _draw_overlay(annotated, 'Liveness Verified ✓', (0, 200, 0))
+            return self._result(annotated, ear=1.0)
+
+        # ── Timeout check ─────────────────────────────────────────────────────
+        if self.elapsed > LIVENESS_TIMEOUT:
+            self.timed_out = True
+            self.message   = f'Timeout! Could not detect blinks in {LIVENESS_TIMEOUT}s. Try again.'
+            _draw_overlay(annotated, self.message, (0, 0, 200))
+            return self._result(annotated, ear=0.0)
+
+        ear = self._compute_ear(frame, face_bbox)
+        self.ear_history.append(ear)
+
+        if ear is None:
+            self.message = 'Position your face clearly in the camera'
+            _draw_overlay(annotated, self.message, (0, 165, 255))
+            return self._result(annotated, ear=0.0)
+
+        # ── EAR-based blink detection ─────────────────────────────────────────
+        if ear < EAR_THRESHOLD:
+            self.consec_below += 1
+        else:
+            # Eye opened again after being closed → count as one blink
+            if self.consec_below >= EAR_CONSEC_FRAMES:
+                self.blink_count += 1
+            self.consec_below = 0
+
+        # ── Check if we have enough blinks ───────────────────────────────────
+        if self.blink_count >= REQUIRED_BLINKS:
+            self.passed  = True
+            self.message = 'Liveness Verified ✓ — Recognising face…'
+            _draw_overlay(annotated, self.message, (0, 200, 0))
+        else:
+            remaining_blinks = REQUIRED_BLINKS - self.blink_count
+            secs_left        = int(self.remaining)
+            self.message = (
+                f'Blink {remaining_blinks} more time(s)  '
+                f'[{self.blink_count}/{REQUIRED_BLINKS} blinks | {secs_left}s left]'
+            )
+            _draw_overlay(annotated, self.message, (0, 200, 255))
+
+        # Draw EAR value for transparency (helps during demos/viva)
+        cv2.putText(
+            annotated,
+            f'EAR: {ear:.2f}  Blinks: {self.blink_count}/{REQUIRED_BLINKS}',
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2
+        )
+
+        return self._result(annotated, ear=ear)
+
+    # ── Internal ──────────────────────────────────────────────────────────────
+
+    def _result(self, annotated, ear):
+        return {
+            'passed':      self.passed,
+            'timed_out':   self.timed_out,
+            'blink_count': self.blink_count,
+            'required':    REQUIRED_BLINKS,
+            'remaining':   round(self.remaining, 1),
+            'ear':         ear if ear is not None else 0.0,
+            'message':     self.message,
+            'annotated':   annotated
+        }
+
+    def _compute_ear(self, frame: np.ndarray, face_bbox: tuple = None) -> float | None:
+        """
+        Compute Eye Aspect Ratio.
+        Uses dlib 68-point predictor if available, otherwise uses
+        OpenCV's eye cascade as a fallback.
+        """
+        if _PREDICTOR_AVAILABLE:
+            return _ear_dlib(frame)
+        else:
+            return _ear_opencv_fallback(frame, face_bbox)
+
+
+# ─── dlib-based EAR ───────────────────────────────────────────────────────────
+
+def _ear_dlib(frame: np.ndarray) -> float | None:
+    """Compute EAR using dlib 68-point facial landmarks."""
+    gray  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    rects = _detector(gray, 0)
+    if len(rects) == 0:
+        return None
+
+    shape = _predictor(gray, rects[0])
+    pts   = [(shape.part(i).x, shape.part(i).y) for i in range(68)]
+
+    # Left eye:  landmarks 36-41
+    # Right eye: landmarks 42-47
+    left_ear  = _eye_aspect_ratio(pts[36:42])
+    right_ear = _eye_aspect_ratio(pts[42:48])
+    return (left_ear + right_ear) / 2.0
+
+
+def _eye_aspect_ratio(eye_pts: list) -> float:
+    """
+    EAR = (|p2-p6| + |p3-p5|) / (2 * |p1-p4|)
+    eye_pts: list of 6 (x, y) points
+    """
+    p1, p2, p3, p4, p5, p6 = [np.array(p) for p in eye_pts]
+    A = np.linalg.norm(p2 - p6)
+    B = np.linalg.norm(p3 - p5)
+    C = np.linalg.norm(p1 - p4)
+    if C == 0:
+        return 0.0
+    return (A + B) / (2.0 * C)
+
+
+# ─── OpenCV Fallback EAR ──────────────────────────────────────────────────────
+
+_eye_cascade = cv2.CascadeClassifier(
+    cv2.data.haarcascades + 'haarcascade_eye.xml'
+)
+
+def _ear_opencv_fallback(frame: np.ndarray, face_bbox: tuple = None) -> float | None:
+    """
+    Fallback when dlib/predictor is unavailable.
+    Detects eyes using Haar cascade and estimates EAR from bounding box ratio.
+    Less accurate than dlib but works without installing dlib.
+
+    Logic:
+    - If 0 eyes detected → eye is fully closed → return low EAR (blink signal)
+    - If 1 eye detected → half-blink or occlusion → marginal EAR
+    - If 2+ eyes detected → eyes open → compute height/width ratio as proxy EAR
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    if face_bbox is not None:
+        x, y, w, h = face_bbox
+        # Search for eyes only in the upper half of the face (faster + more accurate)
+        roi_gray = gray[y:y + h // 2, x:x + w]
+    else:
+        roi_gray = gray
+
+    eyes = _eye_cascade.detectMultiScale(roi_gray, 1.1, 4, minSize=(20, 20))
+
+    if len(eyes) == 0:
+        return 0.10   # Both eyes closed → definite blink
+    if len(eyes) == 1:
+        return 0.22   # One eye — could be partial blink
+
+    # Two eyes detected → estimate EAR from bounding box aspect ratio
+    ears = []
+    for (ex, ey, ew, eh) in eyes[:2]:
+        ear_approx = eh / max(ew, 1)   # height/width ratio ≈ EAR proxy
+        ears.append(ear_approx)
+
+    return float(np.mean(ears))
+
+
+# ─── Annotation Helper ────────────────────────────────────────────────────────
+
+def _draw_overlay(frame: np.ndarray, text: str, color: tuple):
+    """Draw a semi-transparent overlay bar at the bottom of the frame."""
+    h, w = frame.shape[:2]
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, h - 50), (w, h), (20, 20, 20), -1)
+    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+    cv2.putText(frame, text, (10, h - 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2, cv2.LINE_AA)

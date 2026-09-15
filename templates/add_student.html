@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}{% if edit %}Edit{% else %}Add{% endif %} Student — Smart Attendance System{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ url_for('students.list_students') }}" class="text-decoration-none">Students</a>
+  <i class="bi bi-chevron-right mx-2 small"></i>
+  {% if edit %}Edit Student{% else %}Add Student{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">{% if edit %}Edit Student{% else %}Register New Student{% endif %}</h2>
+  <p class="page-subtitle">{% if edit %}Update student details{% else %}Fill in student details, then capture face samples{% endif %}</p>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    <div class="card card-custom">
+      <div class="card-header-custom">
+        <h5 class="mb-0">
+          <i class="bi bi-person-{% if edit %}gear{% else %}plus{% endif %}-fill me-2"></i>
+          Student Information
+        </h5>
+      </div>
+      <div class="card-body p-4">
+        <form method="POST" id="studentForm" novalidate>
+
+          <div class="row g-3">
+            <!-- Student ID (read-only on edit) -->
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-500" for="student_id">
+                Student ID <span class="text-danger">*</span>
+              </label>
+              <input type="text" class="form-control" id="student_id" name="student_id"
+                     value="{{ form.student_id if form.student_id else '' }}"
+                     placeholder="e.g. CSE2026001" required
+                     {% if edit %}readonly{% endif %}/>
+              {% if edit %}<small class="text-muted">Student ID cannot be changed after registration.</small>{% endif %}
+            </div>
+
+            <!-- Full Name -->
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-500" for="name">
+                Full Name <span class="text-danger">*</span>
+              </label>
+              <input type="text" class="form-control" id="name" name="name"
+                     value="{{ form.name if form.name else '' }}"
+                     placeholder="e.g. Vivek Yadav" required/>
+            </div>
+
+            <!-- Department -->
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-500" for="department">
+                Department <span class="text-danger">*</span>
+              </label>
+              <select class="form-select" id="department" name="department" required>
+                <option value="">— Select Department —</option>
+                {% set depts = ['CSE','ECE','EEE','ME','CE','IT','AIDS','AIML','DS','Cyber Security'] %}
+                {% for d in depts %}
+                <option value="{{ d }}"
+                  {% if (form.department if form.department else '') == d %}selected{% endif %}>
+                  {{ d }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- Year -->
+            <div class="col-12 col-md-6">
+              <label class="form-label fw-500" for="year">
+                Year <span class="text-danger">*</span>
+              </label>
+              <select class="form-select" id="year" name="year" required>
+                <option value="">— Select Year —</option>
+                {% for y in ['1','2','3','4'] %}
+                <option value="{{ y }}"
+                  {% if (form.year if form.year else '') == y %}selected{% endif %}>
+                  Year {{ y }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- Email -->
+            <div class="col-12">
+              <label class="form-label fw-500" for="email">
+                Email Address <span class="text-danger">*</span>
+              </label>
+              <input type="email" class="form-control" id="email" name="email"
+                     value="{{ form.email if form.email else '' }}"
+                     placeholder="e.g. vivek@college.edu" required/>
+            </div>
+          </div>
+
+          <hr class="my-4"/>
+
+          <div class="d-flex gap-3 flex-wrap">
+            <button type="submit" class="btn btn-primary px-4" id="submitBtn">
+              <i class="bi bi-{% if edit %}check-lg{% else %}person-plus{% endif %} me-2"></i>
+              {% if edit %}Update Student{% else %}Register Student{% endif %}
+            </button>
+            <a href="{{ url_for('students.list_students') }}" class="btn btn-outline-secondary px-4">
+              <i class="bi bi-arrow-left me-2"></i>Cancel
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if not edit %}
+    <!-- Info box about next step -->
+    <div class="alert alert-info mt-3">
+      <i class="bi bi-info-circle-fill me-2"></i>
+      <strong>Next Step:</strong> After registering, you'll be taken to the Face Capture page
+      to record face samples for this student.
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

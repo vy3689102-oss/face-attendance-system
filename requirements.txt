@@ -1,0 +1,19 @@
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Werkzeug==3.0.1
+SQLAlchemy==2.0.23
+opencv-python-headless==4.8.1.78
+numpy==1.26.2
+pandas==2.1.4
+openpyxl==3.1.2
+python-dotenv==1.0.0
+Pillow==10.1.0
+
+# ── Optional: dlib for improved liveness detection ─────────────────────────
+# dlib requires CMake and C++ Build Tools on Windows.
+# If you cannot install dlib, the system will use OpenCV's eye cascade instead.
+# To install dlib on Windows:
+#   1. Install Visual C++ Build Tools: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+#   2. Install CMake: https://cmake.org/download/
+#   3. Then: pip install dlib
+# dlib==19.24.2

@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Attendance Records — Smart Attendance System{% endblock %}
+{% block breadcrumb %}<i class="bi bi-journal-text me-2"></i>Records{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Attendance Records</h2>
+  <p class="page-subtitle">Browse and filter all attendance entries</p>
+</div>
+
+<!-- Filters -->
+<div class="card card-custom mb-4">
+  <div class="card-body">
+    <form method="GET" class="row g-3 align-items-end">
+      <div class="col-12 col-md-3">
+        <label class="form-label">Date</label>
+        <input type="date" class="form-control" name="date" value="{{ filters.date }}"/>
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label">Student</label>
+        <input type="text" class="form-control" name="student"
+               value="{{ filters.student }}" placeholder="Name or ID…"/>
+      </div>
+      <div class="col-12 col-md-2">
+        <label class="form-label">Department</label>
+        <select class="form-select" name="dept">
+          <option value="">All</option>
+          {% for d in departments %}
+          <option value="{{ d }}" {% if filters.dept == d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-2">
+        <label class="form-label">Status</label>
+        <select class="form-select" name="status">
+          <option value="">All</option>
+          <option value="Present" {% if filters.status == 'Present' %}selected{% endif %}>Present</option>
+          <option value="Absent"  {% if filters.status == 'Absent'  %}selected{% endif %}>Absent</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-2 d-flex gap-2">
+        <button type="submit" class="btn btn-primary flex-fill">
+          <i class="bi bi-funnel me-1"></i>Filter
+        </button>
+        <a href="{{ url_for('records.records') }}" class="btn btn-outline-secondary">
+          <i class="bi bi-x"></i>
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card card-custom">
+  <div class="card-header-custom d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">
+      <i class="bi bi-table me-2"></i>Results
+      <span class="badge bg-primary ms-2">{{ pagination.total }}</span>
+    </h5>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('reports.export_daily_csv', date=filters.date or '') }}"
+         class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-filetype-csv me-1"></i>CSV
+      </a>
+      <a href="{{ url_for('reports.export_daily_excel', date=filters.date or '') }}"
+         class="btn btn-sm btn-outline-success">
+        <i class="bi bi-file-earmark-excel me-1"></i>Excel
+      </a>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    {% if pagination.items %}
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Student ID</th>
+            <th>Name</th>
+            <th>Department</th>
+            <th>Date</th>
+            <th>Time</th>
+            <th>Status</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for att, stu in pagination.items %}
+          <tr>
+            <td class="text-muted small">{{ loop.index + (pagination.page-1)*20 }}</td>
+            <td><span class="badge bg-secondary">{{ stu.student_id }}</span></td>
+            <td class="fw-500">{{ stu.name }}</td>
+            <td>{{ stu.department }}</td>
+            <td>{{ att.date }}</td>
+            <td><small>{{ att.time }}</small></td>
+            <td>
+              {% if att.status == 'Present' %}
+                <span class="badge bg-success">Present</span>
+              {% else %}
+                <span class="badge bg-danger">Absent</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <div class="progress flex-fill" style="height:6px;min-width:60px">
+                  <div class="progress-bar bg-info"
+                       style="width:{{ att.confidence }}%"></div>
+                </div>
+                <small class="text-muted">{{ att.confidence }}%</small>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if pagination.pages > 1 %}
+    <div class="d-flex justify-content-center py-3">
+      <nav>
+        <ul class="pagination pagination-sm mb-0">
+          {% if pagination.has_prev %}
+          <li class="page-item">
+            <a class="page-link" href="?page={{ pagination.prev_num }}&date={{ filters.date }}&student={{ filters.student }}&dept={{ filters.dept }}&status={{ filters.status }}">
+              &laquo;
+            </a>
+          </li>
+          {% endif %}
+          {% for p in pagination.iter_pages() %}
+            {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+              <a class="page-link" href="?page={{ p }}&date={{ filters.date }}&student={{ filters.student }}&dept={{ filters.dept }}&status={{ filters.status }}">
+                {{ p }}
+              </a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+          {% endfor %}
+          {% if pagination.has_next %}
+          <li class="page-item">
+            <a class="page-link" href="?page={{ pagination.next_num }}&date={{ filters.date }}&student={{ filters.student }}&dept={{ filters.dept }}&status={{ filters.status }}">
+              &raquo;
+            </a>
+          </li>
+          {% endif %}
+        </ul>
+      </nav>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="empty-state">
+      <i class="bi bi-journal-x"></i>
+      <p>No records found{% if filters.date or filters.student %} for the selected filters{% endif %}</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
