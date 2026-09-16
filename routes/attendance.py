@@ -183,7 +183,7 @@ def process_frame():
         _reset_checker(admin_id)
         return jsonify({
             'state':      'unknown',
-            'message':    'Face not recognised. Please try again or contact admin.',
+            'message':    '⚠ Unknown Face. This person is not registered. Attendance was not marked.',
             'confidence': result['confidence']
         })
 

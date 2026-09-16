@@ -55,130 +55,162 @@ except ImportError:
 
 # ─── LivenessChecker Class ────────────────────────────────────────────────────
 
+CHALLENGE_TYPES = ['blink', 'turn_left', 'turn_right', 'look_up']
+
 class LivenessChecker:
-    """
-    Stateful liveness checker — tracks blink count across multiple frames.
-    One instance is created per attendance session and shared across frames.
-
-    Features:
-      - Counts blinks using EAR (Eye Aspect Ratio) threshold.
-      - Times out after LIVENESS_TIMEOUT seconds if not enough blinks detected.
-      - Resets automatically on timeout so the next person can try.
-
-    Usage:
-        checker = LivenessChecker()
-        for frame in webcam_frames:
-            result = checker.process_frame(frame)
-            if result['passed']:
-                break
-            if result['timed_out']:
-                checker = LivenessChecker()   # restart
-    """
-
     def __init__(self):
-        self.blink_count   = 0
-        self.consec_below  = 0          # Consecutive frames with EAR below threshold
         self.passed        = False
         self.timed_out     = False
-        self.message       = 'Please blink to verify liveness'
-        self.ear_history   = []
-        self._start_time   = time.time()  # Track when session started
+        self._start_time   = time.time()
+        
+        # State for current challenge
+        self.consec_below  = 0
+        self.current_blink_count = 0
+
+        # Generate 2 random challenges, ensuring 'blink' is often first but not always
+        import random
+        if _PREDICTOR_AVAILABLE:
+            self.challenges = random.sample(CHALLENGE_TYPES, 2)
+            # Make sure blink is one of them if possible for better UX
+            if 'blink' not in self.challenges:
+                self.challenges[0] = 'blink'
+        else:
+            self.challenges = ['blink', 'blink'] # Fallback if no dlib
+            
+        self.current_challenge_idx = 0
+        self.message = ""
+        self._update_message()
 
     def reset(self):
         self.__init__()
 
     @property
     def elapsed(self) -> float:
-        """Seconds since this liveness session started."""
         return time.time() - self._start_time
 
     @property
     def remaining(self) -> float:
-        """Seconds remaining before timeout."""
         return max(0.0, LIVENESS_TIMEOUT - self.elapsed)
+        
+    def _update_message(self):
+        if self.current_challenge_idx >= len(self.challenges):
+            self.message = 'Liveness Verified ✓ — Recognising face…'
+            return
+            
+        c_type = self.challenges[self.current_challenge_idx]
+        if c_type == 'blink':
+            self.message = f'Challenge {self.current_challenge_idx+1}: Please blink twice'
+        elif c_type == 'turn_left':
+            self.message = f'Challenge {self.current_challenge_idx+1}: Turn your head LEFT'
+        elif c_type == 'turn_right':
+            self.message = f'Challenge {self.current_challenge_idx+1}: Turn your head RIGHT'
+        elif c_type == 'look_up':
+            self.message = f'Challenge {self.current_challenge_idx+1}: Look UP slightly'
 
     def process_frame(self, frame: np.ndarray, face_bbox: tuple = None) -> dict:
-        """
-        Process one webcam frame and update blink state.
-
-        Args:
-            frame:     BGR webcam frame
-            face_bbox: (x, y, w, h) from face_detection if already detected
-
-        Returns:
-            dict with:
-              - 'passed'       (bool)   : liveness verified
-              - 'timed_out'    (bool)   : timeout reached without enough blinks
-              - 'blink_count'  (int)    : blinks detected so far
-              - 'required'     (int)    : blinks required
-              - 'remaining'    (float)  : seconds left before timeout
-              - 'ear'          (float)  : current EAR value
-              - 'message'      (str)    : user-facing status message
-              - 'annotated'    (ndarray): frame with overlay
-        """
         annotated = frame.copy()
 
-        # Already verified — just return success
         if self.passed:
             _draw_overlay(annotated, 'Liveness Verified ✓', (0, 200, 0))
-            return self._result(annotated, ear=1.0)
+            return self._result(annotated, 1.0)
 
-        # ── Timeout check ─────────────────────────────────────────────────────
         if self.elapsed > LIVENESS_TIMEOUT:
             self.timed_out = True
-            self.message   = f'Timeout! Could not detect blinks in {LIVENESS_TIMEOUT}s. Try again.'
+            self.message   = f'Timeout! Try again in {LIVENESS_TIMEOUT}s.'
             _draw_overlay(annotated, self.message, (0, 0, 200))
-            return self._result(annotated, ear=0.0)
+            return self._result(annotated, 0.0)
+            
+        # Get Landmarks
+        pts = None
+        if _PREDICTOR_AVAILABLE:
+            gray  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            rects = _detector(gray, 0)
+            if len(rects) > 0:
+                shape = _predictor(gray, rects[0])
+                pts   = [(shape.part(i).x, shape.part(i).y) for i in range(68)]
 
-        ear = self._compute_ear(frame, face_bbox)
-        self.ear_history.append(ear)
-
-        if ear is None:
+        if pts is None and _PREDICTOR_AVAILABLE:
             self.message = 'Position your face clearly in the camera'
             _draw_overlay(annotated, self.message, (0, 165, 255))
-            return self._result(annotated, ear=0.0)
+            return self._result(annotated, 0.0)
 
-        # ── EAR-based blink detection ─────────────────────────────────────────
-        if ear < EAR_THRESHOLD:
-            self.consec_below += 1
-        else:
-            # Eye opened again after being closed → count as one blink
-            if self.consec_below >= EAR_CONSEC_FRAMES:
-                self.blink_count += 1
+        c_type = self.challenges[self.current_challenge_idx]
+        challenge_passed = False
+        ear = 0.0
+        
+        if c_type == 'blink':
+            if pts:
+                left_ear  = _eye_aspect_ratio(pts[36:42])
+                right_ear = _eye_aspect_ratio(pts[42:48])
+                ear = (left_ear + right_ear) / 2.0
+            else:
+                ear = _ear_opencv_fallback(frame, face_bbox) or 0.3
+                
+            if ear < EAR_THRESHOLD:
+                self.consec_below += 1
+            else:
+                if self.consec_below >= EAR_CONSEC_FRAMES:
+                    self.current_blink_count += 1
+                self.consec_below = 0
+                
+            if self.current_blink_count >= REQUIRED_BLINKS:
+                challenge_passed = True
+                
+        elif c_type == 'turn_left':
+            # Turn left from user's perspective means looking towards right side of the screen
+            if pts:
+                nose_x = pts[30][0]
+                left_x = pts[0][0]
+                right_x = pts[16][0]
+                dist_left = nose_x - left_x
+                dist_right = right_x - nose_x
+                if dist_left > 1.8 * dist_right:
+                    challenge_passed = True
+                    
+        elif c_type == 'turn_right':
+            if pts:
+                nose_x = pts[30][0]
+                left_x = pts[0][0]
+                right_x = pts[16][0]
+                dist_left = nose_x - left_x
+                dist_right = right_x - nose_x
+                if dist_right > 1.8 * dist_left:
+                    challenge_passed = True
+                    
+        elif c_type == 'look_up':
+            if pts:
+                nose_y = pts[30][1]
+                eye_y = (pts[36][1] + pts[45][1]) / 2.0
+                chin_y = pts[8][1]
+                # Ratio of nose-to-eye vs chin-to-nose
+                dist_top = nose_y - eye_y
+                dist_bottom = chin_y - nose_y
+                if dist_bottom > 2.0 * dist_top:
+                    challenge_passed = True
+
+        if challenge_passed:
+            self.current_challenge_idx += 1
+            self.current_blink_count = 0
             self.consec_below = 0
+            if self.current_challenge_idx >= len(self.challenges):
+                self.passed = True
+            self._update_message()
 
-        # ── Check if we have enough blinks ───────────────────────────────────
-        if self.blink_count >= REQUIRED_BLINKS:
-            self.passed  = True
-            self.message = 'Liveness Verified ✓ — Recognising face…'
-            _draw_overlay(annotated, self.message, (0, 200, 0))
-        else:
-            remaining_blinks = REQUIRED_BLINKS - self.blink_count
-            secs_left        = int(self.remaining)
-            self.message = (
-                f'Blink {remaining_blinks} more time(s)  '
-                f'[{self.blink_count}/{REQUIRED_BLINKS} blinks | {secs_left}s left]'
-            )
-            _draw_overlay(annotated, self.message, (0, 200, 255))
+        color = (0, 200, 0) if self.passed else (0, 200, 255)
+        
+        secs_left = int(self.remaining)
+        display_msg = self.message + f" [{secs_left}s left]"
+        _draw_overlay(annotated, display_msg, color)
 
-        # Draw EAR value for transparency (helps during demos/viva)
-        cv2.putText(
-            annotated,
-            f'EAR: {ear:.2f}  Blinks: {self.blink_count}/{REQUIRED_BLINKS}',
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2
-        )
-
-        return self._result(annotated, ear=ear)
-
-    # ── Internal ──────────────────────────────────────────────────────────────
+        return self._result(annotated, ear)
 
     def _result(self, annotated, ear):
+        # We dummy out blink_count for the frontend since it might not be a blink challenge
         return {
             'passed':      self.passed,
             'timed_out':   self.timed_out,
-            'blink_count': self.blink_count,
-            'required':    REQUIRED_BLINKS,
+            'blink_count': self.current_challenge_idx, # Use idx as progress
+            'required':    len(self.challenges),
             'remaining':   round(self.remaining, 1),
             'ear':         ear if ear is not None else 0.0,
             'message':     self.message,
@@ -186,15 +218,8 @@ class LivenessChecker:
         }
 
     def _compute_ear(self, frame: np.ndarray, face_bbox: tuple = None) -> float | None:
-        """
-        Compute Eye Aspect Ratio.
-        Uses dlib 68-point predictor if available, otherwise uses
-        OpenCV's eye cascade as a fallback.
-        """
-        if _PREDICTOR_AVAILABLE:
-            return _ear_dlib(frame)
-        else:
-            return _ear_opencv_fallback(frame, face_bbox)
+        """Dummy method since logic is now inside process_frame"""
+        pass
 
 
 # ─── dlib-based EAR ───────────────────────────────────────────────────────────

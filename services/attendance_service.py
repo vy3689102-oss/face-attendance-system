@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from utils.database import db
 from models.student import Student
 from models.attendance import Attendance
-from config import ATTENDANCE_STATUS_PRESENT
+from config import ATTENDANCE_STATUS_PRESENT, ATTENDANCE_STATUS_LATE, LATE_CUTOFF_TIME
 
 
 # ─── Mark Attendance ──────────────────────────────────────────────────────────
@@ -43,12 +43,15 @@ def mark_attendance(student: Student, confidence: float = 0.0) -> dict:
             'duplicate': True
         }
 
-    # ── Create new attendance record ──────────────────────────────────────────
+    status = ATTENDANCE_STATUS_PRESENT
+    if now > LATE_CUTOFF_TIME:
+        status = ATTENDANCE_STATUS_LATE
+
     record = Attendance(
         student_id=student.id,
         date=today,
         time=now,
-        status=ATTENDANCE_STATUS_PRESENT,
+        status=status,
         confidence=round(confidence, 2)
     )
 
@@ -84,7 +87,8 @@ def get_today_stats() -> dict:
     today = date.today().strftime('%Y-%m-%d')
 
     total_students = Student.query.count()
-    present_today  = Attendance.query.filter_by(date=today, status=ATTENDANCE_STATUS_PRESENT).count()
+    present_today  = Attendance.query.filter(Attendance.date==today, Attendance.status.in_([ATTENDANCE_STATUS_PRESENT, ATTENDANCE_STATUS_LATE])).count()
+    late_today     = Attendance.query.filter_by(date=today, status=ATTENDANCE_STATUS_LATE).count()
     absent_today   = total_students - present_today
     percentage     = round((present_today / total_students * 100), 2) if total_students > 0 else 0.0
 
@@ -99,7 +103,8 @@ def get_today_stats() -> dict:
 
     return {
         'total':      total_students,
-        'present':    present_today,
+        'present':    present_today, # Present includes late in this context (they showed up)
+        'late':       late_today,
         'absent':     absent_today,
         'percentage': percentage,
         'records':    records,

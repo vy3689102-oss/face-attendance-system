@@ -11,7 +11,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ─── Flask Secret Key ─────────────────────────────────────────────────────────
 # In production, set this via environment variable SECRET_KEY
-SECRET_KEY = os.environ.get('SECRET_KEY', 'change-this-before-deployment-2026')
+SECRET_KEY = os.environ.get('SECRET_KEY') or 'change-this-before-deployment-2026'
 SESSION_LIFETIME = timedelta(hours=8)
 
 # ─── Database ─────────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ HAAR_MIN_SIZE       = (80, 80)   # Minimum face size in pixels
 # ─── Face Recognition ─────────────────────────────────────────────────────────
 # Cosine similarity threshold (0.0 = identical, 1.0 = completely different)
 # Lower value = stricter matching
-FACE_MATCH_THRESHOLD = 0.45   # Faces with distance <= this are recognized
+FACE_MATCH_THRESHOLD = 0.20   # Faces with distance <= this are recognized (0.20 = 80% confidence)
 RECOGNITION_MODEL    = 'opencv'  # 'opencv' uses LBPH; future: 'deepface'
 
 # ─── Liveness Detection ───────────────────────────────────────────────────────
@@ -71,4 +71,8 @@ ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
 # ─── Attendance ───────────────────────────────────────────────────────────────
 ATTENDANCE_STATUS_PRESENT = 'Present'
+ATTENDANCE_STATUS_LATE    = 'Late'
 ATTENDANCE_STATUS_ABSENT  = 'Absent'
+
+LATE_CUTOFF_TIME = '09:30:00'
+

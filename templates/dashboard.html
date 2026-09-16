@@ -16,7 +16,7 @@
 
 <!-- ── Stat Cards ─────────────────────────────────────────────────────────── -->
 <div class="row g-4 mb-4">
-  <div class="col-12 col-sm-6 col-xl-3">
+  <div class="col-6 col-sm-4 col-xl">
     <div class="stat-card stat-blue">
       <div class="stat-icon"><i class="bi bi-people-fill"></i></div>
       <div class="stat-body">
@@ -25,25 +25,34 @@
       </div>
     </div>
   </div>
-  <div class="col-12 col-sm-6 col-xl-3">
+  <div class="col-6 col-sm-4 col-xl">
     <div class="stat-card stat-green">
       <div class="stat-icon"><i class="bi bi-person-check-fill"></i></div>
       <div class="stat-body">
         <div class="stat-value">{{ stats.present }}</div>
-        <div class="stat-label">Present Today</div>
+        <div class="stat-label">Present</div>
       </div>
     </div>
   </div>
-  <div class="col-12 col-sm-6 col-xl-3">
+  <div class="col-6 col-sm-4 col-xl">
+    <div class="stat-card" style="background-color: var(--bs-warning-bg-subtle); color: var(--bs-warning-text-emphasis); border-left: 4px solid var(--bs-warning);">
+      <div class="stat-icon"><i class="bi bi-person-dash-fill"></i></div>
+      <div class="stat-body">
+        <div class="stat-value">{{ stats.late }}</div>
+        <div class="stat-label">Late</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-6 col-xl">
     <div class="stat-card stat-red">
       <div class="stat-icon"><i class="bi bi-person-x-fill"></i></div>
       <div class="stat-body">
         <div class="stat-value">{{ stats.absent }}</div>
-        <div class="stat-label">Absent Today</div>
+        <div class="stat-label">Absent</div>
       </div>
     </div>
   </div>
-  <div class="col-12 col-sm-6 col-xl-3">
+  <div class="col-12 col-sm-6 col-xl">
     <div class="stat-card stat-purple">
       <div class="stat-icon"><i class="bi bi-percent"></i></div>
       <div class="stat-body">
@@ -128,7 +137,13 @@
                 <td class="fw-500">{{ stu.name }}</td>
                 <td>{{ stu.department }}</td>
                 <td><small>{{ att.time }}</small></td>
-                <td><span class="badge bg-success">{{ att.status }}</span></td>
+                <td>
+                  {% if att.status == 'Late' %}
+                  <span class="badge bg-warning text-dark">{{ att.status }}</span>
+                  {% else %}
+                  <span class="badge bg-success">{{ att.status }}</span>
+                  {% endif %}
+                </td>
               </tr>
               {% endfor %}
             </tbody>
@@ -153,6 +168,7 @@
 const trendData    = {{ trend | tojson }};
 const deptData     = {{ dept_stats | tojson }};
 const presentToday = {{ stats.present }};
+const lateToday    = {{ stats.late }};
 const absentToday  = {{ stats.absent }};
 const totalStudents = {{ stats.total }};
 
@@ -191,9 +207,9 @@ if (totalStudents > 0) {
   new Chart(document.getElementById('donutChart'), {
     type: 'doughnut',
     data: {
-      labels: ['Present', 'Absent'],
-      datasets: [{ data: [presentToday, absentToday],
-        backgroundColor: ['#22c55e','#ef4444'], borderWidth: 0,
+      labels: ['On Time', 'Late', 'Absent'],
+      datasets: [{ data: [presentToday - lateToday, lateToday, absentToday],
+        backgroundColor: ['#22c55e','#f59e0b','#ef4444'], borderWidth: 0,
         hoverOffset: 6 }]
     },
     options: {

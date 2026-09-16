@@ -17,9 +17,8 @@ def init_db(app):
     2. Create all tables if they don't already exist.
     3. Seed the default admin account if none exists.
     """
-    # Make sure the database folder exists
-    db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    from config import DATABASE_DIR
+    os.makedirs(DATABASE_DIR, exist_ok=True)
 
     db.init_app(app)
 
